@@ -1,0 +1,31 @@
+name: Vyce stock watch
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+permissions:
+  issues: write
+concurrency:
+  group: vyce-watch
+  cancel-in-progress: true
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check free slots
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          json=$(curl -fsS -m 20 https://vyce.cloud/api/stock)
+          echo "$json"
+          open=$(echo "$json" | jq -r '[.regions[] | select(.freeOpen==true) | .id] | join(", ")')
+          if [ -z "$open" ]; then echo "No free slots."; exit 0; fi
+          existing=$(gh issue list -R "$REPO" --label restock --state open --json number --jq 'length')
+          if [ "$existing" != "0" ]; then echo "Alert already open."; exit 0; fi
+          gh label create restock -R "$REPO" --color 2ea44f 2>/dev/null || true
+          gh issue create -R "$REPO" --label restock \
+            --title "vyce.cloud 有免费名额了: $open" \
+            --body "免费 Vps-Mini 名额已开放：$open。快去 https://vyce.cloud/ 抢！抢完把这个 issue 关掉，下次补货会再提醒。"
